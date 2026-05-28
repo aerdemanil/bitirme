@@ -1,0 +1,256 @@
+========================================================
+  ADS GUARDIAN — BİTİRME PROJESİ ÖZET SUNUM NOTU
+  Tarih: 22 Mayıs 2026
+========================================================
+
+─────────────────────────────────────────────
+1. PROJE NEDİR?
+─────────────────────────────────────────────
+"ADS Guardian" adlı gerçek zamanlı bir siber güvenlik izleme sistemidir.
+Nginx web sunucusuna gelen HTTP isteklerini anlık olarak analiz ederek
+DoS, Brute Force, SQL Injection ve MITM saldırılarını tespit eder.
+Web tabanlı bir dashboard ile tüm trafiği canlı gösterir.
+
+Teknoloji yığını:
+  - Backend : Python, Flask, Flask-SocketIO (gerçek zamanlı iletişim)
+  - Frontend: HTML/CSS (Tailwind), JavaScript, Chart.js
+  - ML      : scikit-learn (Random Forest, Logistic Regression)
+  - Altyapı : Docker (hedef nginx konteyneri)
+
+
+─────────────────────────────────────────────
+2. VERİ SETİ — CIC-IDS2018
+─────────────────────────────────────────────
+Kullanılan veri seti: Canadian Institute for Cybersecurity tarafından
+hazırlanan gerçek ağ trafiği kaydı (CIC-IDS2018).
+
+Veri seti özellikleri:
+  - Günlük CSV dosyaları halinde (02-14-2018.csv, 02-15-2018.csv vb.)
+  - Her satır = bir ağ akışı (flow)
+  - 80+ özellik (flow paket hızı, paket boyutu, port, protokol vb.)
+  - Etiketler: DoS, BruteForce, Benign ve diğerleri
+
+Dosya: temizlik/temizle.py
+
+
+─────────────────────────────────────────────
+3. VERİ TEMİZLEME (temizle.py)
+─────────────────────────────────────────────
+Hamveri çok büyük olduğu için (4+ GB dosyalar) seçici bir strateji uyguladım:
+
+Adımlar:
+  a) Hangi dosyada hangi saldırı türü var → manuel haritalama yaptım
+     (DOSYA_ONCELIK sözlüğü ile gereksiz dosyaları atladım)
+
+  b) pandas ile chunk'lı okuma (100.000 satırlık parçalar)
+     → Belleğe sığmayan büyük dosyaları parça parça işledim
+
+  c) Label eşleme:
+     - "DoS attacks-GoldenEye", "DoS attacks-Hulk" vb. → hepsi "DoS"
+     - "FTP-BruteForce", "SSH-Bruteforce" vb. → hepsi "BruteForce"
+     - "Benign" → "Benign"
+
+  d) Her kategori için 50.000 satır seçtim → dengeli veri seti
+
+  e) Tüm kategoriler birleştirildi, karıştırıldı (random_state=42)
+
+  f) Sonuç: cleaned_dataset.csv — toplam ~150.000 satır, dengeli 3 sınıf
+
+Kütüphane: pandas
+
+
+─────────────────────────────────────────────
+4. MODEL EĞİTİMİ — İKİ AŞAMA
+─────────────────────────────────────────────
+
+── 4a. İlk Model (train_model.py) — CIC özellikleri ile ──────────────
+
+  - Tüm 80+ sayısal özellik kullanıldı
+  - NaN ve sonsuz değerler → 0 ile dolduruldu
+  - Zaman damgası kolonu → çıkarıldı
+  - StandardScaler ile ölçekleme
+  - LabelEncoder ile etiket kodlama
+  - %80 eğitim / %20 test bölmesi (stratify=True → dengeli bölme)
+  - Model: RandomForestClassifier (100 ağaç, n_jobs=-1)
+
+── 4b. İkinci Model (train_cic_http.py) — HTTP Feature Mapping ────────
+
+  Bu modelde CIC özelliklerini gerçek Nginx log özelliklerine çevirdim.
+  Çünkü sistem gerçekte Nginx log'larını okuyacak, CIC akışlarını değil.
+
+  Feature Mapping tablosu:
+    CIC Özelliği          → HTTP Özelliği
+    ─────────────────────────────────────
+    Flow Pkts/s × 60      → requests_per_ip_last_60s
+    TotLen Fwd Pkts       → bytes_sent
+    Dst Port (80/443→200) → status_code
+    Protocol (6=TCP→0)    → method_encoded
+    Fwd Seg Size Avg/300  → path_depth
+    Pkt Len Mean / 5      → user_agent_length
+
+  Bu model production'da kullanılan model → dos_model.pkl olarak kaydedildi.
+
+Kütüphane: scikit-learn
+
+
+─────────────────────────────────────────────
+5. CONFUSION MATRIX VE GRAFİKLER
+─────────────────────────────────────────────
+Her iki model için aşağıdaki grafikler üretildi (temizlik/grafikler/ klasörü):
+
+  Grafik 1/9  : Sınıf Dağılımı (bar chart — kaç satır DoS/BF/Benign)
+  Grafik 2/10 : Confusion Matrix (seaborn heatmap)
+                → Satır = Gerçek sınıf, Sütun = Tahmin edilen sınıf
+                → Köşegen = doğru tahmin
+  Grafik 3/11 : Feature Importance — en etkili 20 özellik (barh)
+  Grafik 4/12 : ROC Curve (One-vs-Rest, her sınıf için AUC değeri)
+
+Confusion Matrix nasıl oluşturuldu:
+  from sklearn.metrics import confusion_matrix
+  cm = confusion_matrix(y_test, y_pred)
+  sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ...)
+
+
+─────────────────────────────────────────────
+6. DETECTION SİSTEMİ NASIL ÇALIŞIYOR?
+─────────────────────────────────────────────
+Ana dosya: ana prohje/detector/feature_extractor.py
+           ana prohje/detector/attacks/dos_detector.py
+
+Akış şeması:
+  [Nginx Log Satırı]
+       ↓
+  parse_log_line()  ← regex ile satır ayrıştırma
+       ↓
+  Özellik çıkarımı:
+    - IP adresinden 60 saniyelik istek sayısı (kayan pencere)
+    - Gönderilen byte miktarı
+    - HTTP durum kodu
+    - HTTP metod numarası
+    - URL path derinliği
+    - User-Agent uzunluğu
+    - SQLi skorları (keyword, char, pattern, anomaly)
+       ↓
+  DosDetector.detect(features)
+    → get_feature_vector() ile 6 özellik sıralanır
+    → StandardScaler ile normalize edilir
+    → Random Forest modeli predict_proba() çağırır
+    → DoS sınıfı olasılığı >= 0.55 → SALDIRI
+       ↓
+  Flask SocketIO ile dashboard'a gerçek zamanlı iletim
+
+
+─────────────────────────────────────────────
+7. SQLi TESPİTİ (feature_extractor.py içinde)
+─────────────────────────────────────────────
+SQL Injection kural tabanlı + skor sistemi ile tespit edilir:
+
+  a) Keyword skoru: "union", "select", "drop", "sleep(" vb. anahtar
+     kelimeler URL'de aranır, her eşleşme belirli ağırlık ekler
+
+  b) Karakter skoru: %27 (tek tırnak), %22 (çift tırnak), -- gibi
+     URL-encoded tehlikeli karakterler aranır
+
+  c) Regex pattern skoru: "UNION SELECT", "OR 1=1", "sleep(",
+     "information_schema." gibi yüksek güvenilirlikli kalıplar
+
+  d) Ağırlıklı toplam:
+     anomaly = pattern×0.60 + keyword×0.25 + char×0.15
+     Eşik: 0.50 → altı normal, üstü saldırı
+
+
+─────────────────────────────────────────────
+8. DASHBOARD (dashboard.py + dashboard.html)
+─────────────────────────────────────────────
+Flask backend 1400+ satır, şu endpoint'leri sağlar:
+
+  GET  /               → Dashboard ana sayfası
+  GET  /api/stats      → İstatistikler (toplam istek, saldırı sayısı)
+  GET  /api/logs       → Son 500 log satırı
+  GET  /api/attacks    → Aktif/son saldırı oturumları
+  GET  /api/health     → Sistem sağlık durumu (container, model durumu)
+  POST /api/test/offline → RAM'de test (gerçek Docker trafiği yok)
+  POST /api/test/live  → Docker konteynerine gerçek HTTP saldırısı başlatır
+
+Gerçek zamanlı iletişim: Flask-SocketIO (WebSocket)
+  - Her yeni log satırı → "log_entry" event
+  - Her saldırı tespiti → "attack_detected" event
+  - İstatistik güncellemesi → "stats_update" event
+
+
+─────────────────────────────────────────────
+9. TEST SAYFASI NASIL ÇALIŞIYOR?
+─────────────────────────────────────────────
+Dashboard'un Test sekmesi iki bölümden oluşur:
+
+  SOL — Offline Doğrulama Lab:
+    - Gerçek Docker trafiği yok, sadece RAM'de çalışır
+    - Önceden hazırlanmış test case'leri modele gönderir
+    - Modelin doğru karar verip vermediğini hızlıca kontrol eder
+    - Endpoint: POST /api/test/offline
+
+  SAĞ — Canlı Saldırı Jeneratörü:
+    - Docker konteynerinde çalışan gerçek Nginx'e HTTP isteği gönderir
+    - Thread'de arka planda çalışır, anlık yanıt döner
+    - Dashboard üzerinden DoS, Brute Force vb. başlatılabilir
+    - Endpoint: POST /api/test/live
+
+
+─────────────────────────────────────────────
+10. DoS SALDIRI TEST ARACI (dos/attack.py)
+─────────────────────────────────────────────
+Bağımsız bir HTTP flood scripti — sadece test amaçlı:
+
+  Parametreler:
+    --url       Hedef URL (varsayılan: http://localhost:8080)
+    --threads   Eşzamanlı thread sayısı (varsayılan: 10)
+    --duration  Saldırı süresi saniye (varsayılan: 30)
+
+  Çalışma mantığı:
+    - Her thread sürekli HTTP GET isteği gönderir
+    - stop_event ile belirlenen süre sonunda durur
+    - Ekrana başarı/hata sayısı özetini basar
+
+  Kütüphane: requests, threading
+
+
+─────────────────────────────────────────────
+11. GENEL MİMARİ ÖZETİ
+─────────────────────────────────────────────
+
+  [CIC-IDS2018 Ham Veri]
+       ↓ temizle.py (pandas, chunk okuma)
+  [cleaned_dataset.csv]
+       ↓ train_cic_http.py (feature mapping + RF)
+  [dos_model.pkl + ml_scaler.pkl + ml_encoder.pkl]
+       ↓ dos_detector.py (pickle ile yükleme)
+  [DosDetector — gerçek zamanlı tahmin]
+       ↓ dashboard.py (Flask + SocketIO)
+  [Tarayıcı — dashboard.html]
+
+Saldırı türleri ve tespit yöntemi:
+  DoS        → Random Forest (ML) — CIC-IDS2018 verisi
+  BruteForce → Kural tabanlı (IP başına hatalı giriş sayısı)
+  SQLi       → Kural + Skor tabanlı (regex + keyword ağırlıkları)
+  MITM       → Anomali tabanlı (şüpheli header/trafik deseni)
+
+
+─────────────────────────────────────────────
+12. KULLANILAN BAŞLICA KÜTÜPHANELERİN ROLÜ
+─────────────────────────────────────────────
+  pandas       : Veri yükleme, filtreleme, temizleme
+  numpy        : Sayısal işlemler, NaN/inf temizleme
+  scikit-learn : RandomForest eğitimi, StandardScaler, LabelEncoder,
+                 confusion_matrix, classification_report, roc_curve
+  matplotlib   : Grafik üretimi (PNG olarak kayıt)
+  seaborn      : Görsel iyileştirme (heatmap, barplot)
+  Flask        : REST API ve HTML render
+  Flask-SocketIO: Gerçek zamanlı WebSocket iletişimi
+  Docker SDK   : Python üzerinden konteyner yönetimi
+  requests     : DoS test aracının HTTP istekleri
+
+========================================================
+  SON NOT: Projenin en kritik kısmı CIC network flow
+  özelliklerini → Nginx log özelliklerine eşleştirmek.
+  Bu olmadan eğitilen model gerçek log'ları yorumlayamaz.
+========================================================

@@ -1,0 +1,69 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.env
+.venv/
+ENV/
+
+# Dataset / data files (büyük dosyalar - git'e gitmesin)
+*.csv
+*.parquet
+*.feather
+*.h5
+*.hdf5
+*.json.gz
+
+# Eğitilmiş modeller
+*.pkl
+*.joblib
+*.model
+*.pt
+*.pth
+*.h5
+
+# Grafik çıktıları (generate ediliyor)
+temizlik/grafikler/
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# Model raporları ve ara çıktılar
+temizlik/*_rapor.txt
+temizlik/label_dagilim.txt
+temizlik/sql_preview.txt
+
+# Bitirme belgesi ve sunum notları
+*.docx
+*.pptx
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Flask / uygulama
+instance/
+*.db
+*.sqlite3
+flask_session/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Logs
+*.log
+logs/

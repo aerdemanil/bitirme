@@ -1,0 +1,658 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ADS Guardian — Siber Güvenlik Dashboard</title>
+  <meta name="description" content="Gerçek zamanlı ağ saldırı tespit sistemi. DoS, Brute Force, SQL Injection ve MITM saldırılarını anlık izle." />
+
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <!-- Socket.IO -->
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+
+  <link rel="stylesheet" href="/static/dashboard.css" />
+
+  <!-- Tailwind CSS (test sekmesi için — preflight kapalı, mevcut CSS bozulmasın) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>tailwind.config = { darkMode: 'class', corePlugins: { preflight: false } }</script>
+</head>
+<body>
+  <!-- ═══════════════════════════════════════════════════════════
+       SIDEBAR NAV
+  ══════════════════════════════════════════════════════════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-logo">
+      <svg class="logo-icon" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M20 3L35 10V20C35 28.5 28.5 36.2 20 38C11.5 36.2 5 28.5 5 20V10L20 3Z" fill="url(#shield-grad)" stroke="rgba(99,179,237,0.3)" stroke-width="0.5"/>
+        <path d="M14 20L18 24L26 16" stroke="#63b3ed" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+        <defs>
+          <linearGradient id="shield-grad" x1="20" y1="3" x2="20" y2="38" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stop-color="#1a3a6b"/>
+            <stop offset="100%" stop-color="#0d1f3c"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div class="logo-text">
+        <span class="logo-main">ADS Guardian</span>
+        <span class="logo-sub">v2.0</span>
+      </div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <a href="#overview" class="nav-item active" id="nav-overview">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+        <span>Genel Bakış</span>
+      </a>
+      <a href="#attacks" class="nav-item" id="nav-attacks">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span>Saldırılar</span>
+        <span class="badge" id="attack-badge">0</span>
+      </a>
+      <a href="#logs" class="nav-item" id="nav-logs">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+        <span>Canlı Loglar</span>
+      </a>
+      <a href="#test" class="nav-item" id="nav-test">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 3H5a2 2 0 00-2 2v4m6-6h10a2 2 0 012 2v4M9 3v18m0 0h10a2 2 0 002-2V9M9 21H5a2 2 0 01-2-2V9m0 0h18"/></svg>
+        <span>Sistem Testi</span>
+      </a>
+      <a href="#ai" class="nav-item" id="nav-ai">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/><circle cx="18" cy="6" r="2" fill="currentColor" stroke="none"/></svg>
+        <span>AI Asistan</span>
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="system-status" id="system-status">
+        <span class="status-dot" id="status-dot"></span>
+        <span id="status-text">Bağlanıyor...</span>
+      </div>
+      <div class="uptime-display">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        <span id="uptime-display">00:00:00</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       ANA İÇERİK
+  ══════════════════════════════════════════════════════════════ -->
+  <main class="main-content">
+
+    <!-- ─── HEADER ─────────────────────────────────────────── -->
+    <header class="top-bar">
+      <div class="top-bar-left">
+        <h1 class="page-title" id="page-title">Genel Bakış</h1>
+        <span class="breadcrumb">Dashboard / <span id="breadcrumb-sub">Overview</span></span>
+      </div>
+      <div class="top-bar-right">
+        <div class="threat-level-indicator" id="threat-level-wrap">
+          <span class="threat-label">Tehdit Seviyesi</span>
+          <span class="threat-badge" id="threat-badge">DÜŞÜK</span>
+        </div>
+        <div class="header-time" id="header-time">--:--:--</div>
+        <button class="pause-btn" id="pause-btn" title="Log akışını durdur/devam ettir">
+          <svg id="pause-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <!-- ─── SECTION: OVERVIEW ──────────────────────────────── -->
+    <section class="content-section active" id="section-overview">
+
+      <!-- Stat Kartları -->
+      <div class="stat-grid">
+        <div class="stat-card" id="card-requests">
+          <div class="stat-icon stat-icon--blue">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value" id="stat-total-req">0</span>
+            <span class="stat-label">Toplam İstek</span>
+          </div>
+          <div class="stat-trend" id="trend-requests">—</div>
+        </div>
+
+        <div class="stat-card stat-card--danger" id="card-attacks">
+          <div class="stat-icon stat-icon--red">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value stat-value--danger" id="stat-total-attacks">0</span>
+            <span class="stat-label">Tespit Edilen Saldırı</span>
+          </div>
+          <div class="stat-trend danger" id="trend-attacks">—</div>
+        </div>
+
+        <div class="stat-card" id="card-active">
+          <div class="stat-icon stat-icon--orange">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value" id="stat-active-attacks">0</span>
+            <span class="stat-label">Aktif Oturum</span>
+          </div>
+          <div class="stat-trend" id="trend-active">—</div>
+        </div>
+
+        <div class="stat-card" id="card-errors">
+          <div class="stat-icon stat-icon--gray">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          </div>
+          <div class="stat-info">
+            <span class="stat-value" id="stat-parse-errors">0</span>
+            <span class="stat-label">Parse Hatası</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Grafikler -->
+      <div class="chart-grid">
+        <!-- Zaman Serisi -->
+        <div class="chart-card chart-card--wide">
+          <div class="chart-header">
+            <h2 class="chart-title">Trafik Zaman Serisi</h2>
+            <div class="chart-legend">
+              <span class="legend-dot legend-dot--blue"></span><span>İstekler</span>
+              <span class="legend-dot legend-dot--red"></span><span>Saldırılar</span>
+            </div>
+          </div>
+          <div class="chart-body">
+            <canvas id="chart-timeseries"></canvas>
+          </div>
+        </div>
+
+        <!-- Saldırı Türleri Doughnut -->
+        <div class="chart-card">
+          <div class="chart-header">
+            <h2 class="chart-title">Saldırı Dağılımı</h2>
+          </div>
+          <div class="chart-body chart-body--doughnut">
+            <canvas id="chart-attack-types"></canvas>
+            <div class="doughnut-center" id="doughnut-center">
+              <span class="doughnut-total" id="doughnut-total">0</span>
+              <span class="doughnut-label">Toplam</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aktif Saldırılar tablosu -->
+      <div class="table-card" id="active-sessions-card">
+        <div class="table-header">
+          <h2 class="table-title">Aktif Saldırı Oturumları</h2>
+          <span class="table-count" id="active-sessions-count">0 oturum</span>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table" id="active-sessions-table">
+            <thead>
+              <tr>
+                <th>IP Adresi</th>
+                <th>Saldırı Türü</th>
+                <th>Süre</th>
+                <th>İstek Sayısı</th>
+                <th>Peak RPM</th>
+                <th>Max Güven</th>
+                <th>Durum</th>
+              </tr>
+            </thead>
+            <tbody id="active-sessions-body">
+              <tr class="empty-row"><td colspan="7">Aktif saldırı oturumu yok</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── SECTION: ATTACKS ───────────────────────────────── -->
+    <section class="content-section" id="section-attacks">
+      <div class="table-card">
+        <div class="table-header">
+          <h2 class="table-title">Son Tespit Edilen Saldırılar</h2>
+          <div class="table-actions">
+            <input type="text" class="search-input" id="attack-search" placeholder="IP veya tür ara..." />
+            <button class="btn-clear" id="clear-attacks-btn">Temizle</button>
+          </div>
+        </div>
+        <div class="table-wrapper">
+          <table class="data-table" id="attacks-table">
+            <thead>
+              <tr>
+                <th>Zaman</th>
+                <th>IP Adresi</th>
+                <th>Saldırı Türü</th>
+                <th>Güven</th>
+                <th>Yol</th>
+                <th>Metod</th>
+                <th>Durum</th>
+                <th>RPM</th>
+                <th>AI</th>
+              </tr>
+            </thead>
+            <tbody id="attacks-body">
+              <tr class="empty-row"><td colspan="9">Henüz saldırı tespit edilmedi</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── SECTION: LOGS ─────────────────────────────────── -->
+    <section class="content-section" id="section-logs">
+      <div class="log-controls">
+        <div class="log-filters">
+          <button class="filter-btn active" data-filter="all">Tümü</button>
+          <button class="filter-btn" data-filter="attack">Saldırı</button>
+          <button class="filter-btn" data-filter="normal">Normal</button>
+        </div>
+        <div class="log-actions">
+          <label class="toggle-wrap">
+            <input type="checkbox" id="auto-scroll-toggle" checked />
+            <span class="toggle-slider"></span>
+            <span>Otomatik kaydır</span>
+          </label>
+          <button class="btn-clear" id="clear-logs-btn">Temizle</button>
+        </div>
+      </div>
+
+      <div class="log-stream-card">
+        <div class="log-stream-header">
+          <span class="log-stream-title">
+            <span class="blink-dot"></span>
+            Canlı Log Akışı
+          </span>
+          <span class="log-stream-count" id="log-stream-count">0 satır</span>
+        </div>
+        <div class="log-stream" id="log-stream"></div>
+      </div>
+    </section>
+
+    <!-- ─── SECTION: TEST ────────────────────────────────── -->
+    <section class="content-section" id="section-test">
+
+      <!-- ── Sistem Durum Barı ──────────────────────────── -->
+      <div class="flex gap-4 mb-6">
+        <div class="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 flex-1">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-slate-500" id="docker-dot"></span>
+          <div>
+            <div class="text-xs text-slate-400 font-medium uppercase tracking-wide">Hedef Container</div>
+            <div class="text-sm font-semibold text-slate-200" id="docker-status-text">Kontrol ediliyor...</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-3 bg-slate-900 border border-slate-700 rounded-xl px-5 py-3 flex-1">
+          <span class="inline-block w-2.5 h-2.5 rounded-full bg-slate-500" id="models-dot"></span>
+          <div>
+            <div class="text-xs text-slate-400 font-medium uppercase tracking-wide">YZ Motorları</div>
+            <div class="text-sm font-semibold text-slate-200" id="models-status-text">Kontrol ediliyor...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── İki Sütun Grid ─────────────────────────────── -->
+      <div class="grid grid-cols-2 gap-6">
+
+        <!-- ═══════ SOL SÜTUN — Offline Doğrulama Lab ═══════ -->
+        <div class="flex flex-col gap-4">
+          <div class="bg-slate-900 border border-slate-700 rounded-2xl p-6">
+            <div class="flex items-center gap-3 mb-5">
+              <span class="text-2xl">🔬</span>
+              <div>
+                <h2 class="text-sm font-bold text-slate-100">Offline Doğrulama Laboratuvarı</h2>
+                <p class="text-xs text-slate-400 mt-0.5">Docker'a istek gitmez — ML modelleri RAM üzerinde test edilir.</p>
+              </div>
+            </div>
+
+            <!-- Hazır Şablon Butonları -->
+            <div class="mb-5">
+              <p class="text-xs text-slate-500 mb-2 uppercase tracking-wider font-semibold">Hazır Şablonlar</p>
+              <div class="flex flex-wrap gap-2">
+                <button onclick="runOfflineTest('all','mixed')"
+                        class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-indigo-800 border border-slate-600 hover:border-indigo-500 text-slate-300 transition-all">
+                  Karma Trafik
+                </button>
+                <button onclick="runOfflineTest('brute_force','auth_attack')"
+                        class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-indigo-800 border border-slate-600 hover:border-indigo-500 text-slate-300 transition-all">
+                  Kimlik Doğrulama Saldırıları
+                </button>
+                <button onclick="runOfflineTest('all','full')"
+                        class="px-3 py-1.5 rounded-lg text-xs font-medium bg-slate-800 hover:bg-indigo-800 border border-slate-600 hover:border-indigo-500 text-slate-300 transition-all">
+                  Tam Saldırı Seti
+                </button>
+              </div>
+            </div>
+
+            <!-- Kontrol Butonları -->
+            <div>
+              <p class="text-xs text-slate-500 mb-2 uppercase tracking-wider font-semibold">Modeli Test Et</p>
+              <div class="flex flex-wrap gap-2">
+                <button onclick="runOfflineTest('all')"
+                        class="px-4 py-2 rounded-lg text-xs font-bold bg-indigo-700 hover:bg-indigo-600 text-white transition-colors">
+                  Tümünü Çalıştır
+                </button>
+                <button onclick="runOfflineTest('dos')"
+                        class="px-3 py-2 rounded-lg text-xs font-semibold bg-red-950 hover:bg-red-900 text-red-300 border border-red-800 transition-colors">
+                  Sadece DoS
+                </button>
+                <button onclick="runOfflineTest('brute_force')"
+                        class="px-3 py-2 rounded-lg text-xs font-semibold bg-orange-950 hover:bg-orange-900 text-orange-300 border border-orange-800 transition-colors">
+                  Sadece Brute Force
+                </button>
+                <button onclick="runOfflineTest('sql_injection')"
+                        class="px-3 py-2 rounded-lg text-xs font-semibold bg-purple-950 hover:bg-purple-900 text-purple-300 border border-purple-800 transition-colors">
+                  Sadece SQL Injection
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Sonuç Tablosu -->
+          <div class="bg-slate-900 border border-slate-700 rounded-2xl overflow-hidden">
+            <div class="flex items-center justify-between px-5 py-3 border-b border-slate-700">
+              <h3 class="text-sm font-semibold text-slate-100">Model Test Sonuçları</h3>
+              <span class="text-xs text-slate-400" id="offline-result-count">—</span>
+            </div>
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead>
+                  <tr class="bg-slate-800 text-slate-500 text-xs uppercase tracking-wider">
+                    <th class="px-4 py-2.5 text-left font-semibold">Durum</th>
+                    <th class="px-4 py-2.5 text-left font-semibold">Tür</th>
+                    <th class="px-4 py-2.5 text-left font-semibold">Senaryo Adı</th>
+                    <th class="px-4 py-2.5 text-left font-semibold">Beklenen</th>
+                    <th class="px-4 py-2.5 text-left font-semibold">Sonuç</th>
+                    <th class="px-4 py-2.5 text-left font-semibold" style="min-width:130px">Güven Skoru</th>
+                  </tr>
+                </thead>
+                <tbody id="offline-results-body">
+                  <tr>
+                    <td colspan="6" class="px-4 py-8 text-center text-slate-500 text-xs">
+                      Teste başlamak için bir seçenek kullanın.
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="px-5 py-2.5 border-t border-slate-700">
+              <span class="text-xs text-slate-500" id="offline-summary-text">Teste başlamak için bir buton seçin.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ═══════ SAĞ SÜTUN — Canlı Saldırı Jeneratörü ═══════ -->
+        <div class="flex flex-col gap-4">
+          <div class="bg-slate-900 border border-slate-700 rounded-2xl p-5">
+            <div class="flex items-center gap-3 mb-5">
+              <span class="text-2xl">⚡</span>
+              <div>
+                <h2 class="text-sm font-bold text-slate-100">Canlı Trafik &amp; Saldırı Jeneratörü</h2>
+                <p class="text-xs text-slate-400 mt-0.5">Docker Nginx sunucusuna gerçek HTTP paketleri gönderir.</p>
+              </div>
+            </div>
+
+            <!-- DoS Kartı -->
+            <div class="border border-red-900 bg-red-950 rounded-xl p-4 mb-3" style="background:rgba(127,29,29,0.15)">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="text-red-400">⚡</span>
+                <h3 class="text-sm font-bold text-red-300">DoS Saldırı Simülasyonu</h3>
+              </div>
+              <div class="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1 uppercase tracking-wide">Süre (sn)</label>
+                  <input type="number" id="live-dos-duration" value="10" min="1" max="120"
+                         class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-red-500" />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1 uppercase tracking-wide">Thread Sayısı</label>
+                  <input type="number" id="live-dos-threads" value="20" min="1" max="50"
+                         class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-red-500" />
+                </div>
+              </div>
+              <button onclick="startLiveAttack('dos')"
+                      class="w-full py-2.5 rounded-lg text-xs font-bold bg-red-800 hover:bg-red-700 text-white transition-colors tracking-wide uppercase">
+                Yapılandır &amp; Canlı Saldırıyı Başlat
+              </button>
+            </div>
+
+            <!-- Brute Force Kartı -->
+            <div class="border border-orange-900 rounded-xl p-4 mb-3" style="background:rgba(124,45,18,0.15)">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="text-orange-400">🔑</span>
+                <h3 class="text-sm font-bold text-orange-300">Brute Force Simülasyonu</h3>
+              </div>
+              <div class="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1 uppercase tracking-wide">Kullanıcı Listesi</label>
+                  <textarea id="live-bf-users" rows="3"
+                            class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-orange-500 resize-none font-mono leading-relaxed">admin
+root
+user
+administrator</textarea>
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1 uppercase tracking-wide">Şifre Listesi</label>
+                  <textarea id="live-bf-passwords" rows="3"
+                            class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-orange-500 resize-none font-mono leading-relaxed">password
+123456
+admin
+qwerty</textarea>
+                </div>
+              </div>
+              <button onclick="startLiveAttack('bruteforce')"
+                      class="w-full py-2.5 rounded-lg text-xs font-bold bg-orange-800 hover:bg-orange-700 text-white transition-colors tracking-wide uppercase">
+                Yapılandır &amp; Canlı Saldırıyı Başlat
+              </button>
+            </div>
+
+            <!-- Yüksek Hacimli BF Kartı -->
+            <div class="border border-yellow-900 rounded-xl p-4 mb-3" style="background:rgba(113,63,18,0.15)">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="text-yellow-400">🌊</span>
+                <div>
+                  <h3 class="text-sm font-bold text-yellow-300">Yüksek Hacimli Kimlik Saldırısı</h3>
+                  <p class="text-xs text-slate-500 mt-0.5">Credential stuffing — çoklu endpoint, yüksek eş zamanlılık</p>
+                </div>
+              </div>
+              <div class="grid grid-cols-2 gap-3 mb-3">
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1 uppercase tracking-wide">İstek Sayısı</label>
+                  <input type="number" id="live-hvbf-count" value="200" min="10" max="2000"
+                         class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-yellow-500" />
+                </div>
+                <div>
+                  <label class="block text-xs text-slate-500 mb-1 uppercase tracking-wide">Thread Sayısı</label>
+                  <input type="number" id="live-hvbf-threads" value="20" min="1" max="50"
+                         class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-yellow-500" />
+                </div>
+              </div>
+              <button onclick="startLiveAttack('highvolumebrute')"
+                      class="w-full py-2.5 rounded-lg text-xs font-bold bg-yellow-800 hover:bg-yellow-700 text-white transition-colors tracking-wide uppercase">
+                Yüksek Hacimli Saldırıyı Başlat
+              </button>
+            </div>
+
+            <!-- SQL Injection Kartı -->
+            <div class="border border-purple-900 rounded-xl p-4" style="background:rgba(88,28,135,0.15)">
+              <div class="flex items-center gap-2 mb-3">
+                <span class="text-purple-400">💉</span>
+                <h3 class="text-sm font-bold text-purple-300">SQL Injection Simülasyonu</h3>
+              </div>
+              <div class="mb-3">
+                <label class="block text-xs text-slate-500 mb-1 uppercase tracking-wide">SQLi Payload Listesi (her satıra bir payload)</label>
+                <textarea id="live-sqli-payloads" rows="6"
+                          class="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-1.5 text-xs text-slate-200 focus:outline-none focus:border-purple-500 resize-none font-mono leading-relaxed">' OR '1'='1
+' OR 1=1--
+1 UNION SELECT null--
+1 UNION SELECT null,null--
+' AND SLEEP(1)--
+'; DROP TABLE users--
+" OR ""="
+1' ORDER BY 1--
+admin'--
+' UNION SELECT user(),version()--
+1 AND 1=2 UNION SELECT table_name FROM information_schema.tables--
+' OR EXISTS(SELECT 1 FROM users)--
+1; EXEC xp_cmdshell('whoami')--
+' OR 1=1 LIMIT 1--
+1' GROUP BY 1--</textarea>
+              </div>
+              <button onclick="startLiveAttack('sqli')"
+                      class="w-full py-2.5 rounded-lg text-xs font-bold bg-purple-800 hover:bg-purple-700 text-white transition-colors tracking-wide uppercase">
+                Yapılandır &amp; Canlı Saldırıyı Başlat
+              </button>
+            </div>
+          </div>
+
+
+          <!-- Uyarı Kutusu -->
+          <div class="rounded-xl p-4 flex gap-3 items-start border border-yellow-800" style="background:rgba(120,53,15,0.2)">
+            <span class="text-yellow-400 text-base shrink-0 mt-0.5">⚠️</span>
+            <p class="text-xs text-yellow-200 leading-relaxed" style="opacity:0.8">
+              <strong class="text-yellow-300">Uyarı:</strong> Buradan başlatılan testler gerçek HTTP paketleri üreterek
+              Docker hedef sunucunuza gönderir. Canlı log akışını ve anlık grafik değişimlerini izlemek için
+              <strong class="text-yellow-300">Genel Bakış</strong> sekmesine geçiniz.
+            </p>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ─── SECTION: AI ASISTAN ──────────────────────────────── -->
+    <section class="content-section" id="section-ai" style="overflow:hidden;">
+      <div style="display:grid;grid-template-columns:250px 1fr;gap:16px;flex:1;min-height:0;">
+
+        <!-- Sol Panel -->
+        <div style="display:flex;flex-direction:column;gap:10px;min-height:0;">
+
+          <!-- Butonlar -->
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:12px;flex-shrink:0;">
+            <button id="ai-summary-btn" onclick="aiRequestSummary()"
+              style="width:100%;background:#00d4ff;color:#000;border:none;border-radius:7px;padding:8px;font-size:0.8rem;cursor:pointer;font-weight:700;margin-bottom:7px;display:block;">
+              📊 Son 1 Saat Özeti
+            </button>
+            <button onclick="aiSendQuery('Genel sistem güvenlik durumunu ve normal trafik anomalilerini değerlendir.')"
+              style="width:100%;background:none;border:1px solid var(--border);color:#aaa;border-radius:7px;padding:7px;font-size:0.78rem;cursor:pointer;display:block;">
+              🔍 Genel Durum Analizi
+            </button>
+          </div>
+
+          <!-- IP Risk -->
+          <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:12px;flex:1;min-height:0;display:flex;flex-direction:column;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-shrink:0;">
+              <span style="color:#00d4ff;font-weight:600;font-size:0.82rem;">IP Risk Skoru</span>
+              <button onclick="aiLoadIpRisks()" style="background:none;border:1px solid var(--border);color:#aaa;border-radius:5px;padding:2px 8px;font-size:0.7rem;cursor:pointer;">↻</button>
+            </div>
+            <div id="ip-risk-list" style="font-size:0.76rem;overflow-y:auto;flex:1;">
+              <span style="color:#666;">Saldırı verisi bekleniyor...</span>
+            </div>
+          </div>
+
+          <!-- Seçili Log Analizi -->
+          <div id="selected-logs-panel" style="background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;padding:12px;flex-shrink:0;display:none;">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+              <span style="color:#00d4ff;font-weight:600;font-size:0.82rem;">Seçili Log Analizi</span>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <span id="selected-count-badge" style="background:#00d4ff22;color:#00d4ff;border:1px solid #00d4ff44;border-radius:4px;padding:1px 7px;font-size:0.7rem;font-weight:600;">0 satır</span>
+                <button onclick="logSelectionClear()" style="background:none;border:none;color:#666;font-size:0.75rem;cursor:pointer;" title="Seçimi Temizle">✕</button>
+              </div>
+            </div>
+            <!-- Compact önizleme (tıklayınca açılır) -->
+            <div id="selected-logs-preview" style="margin-bottom:8px;cursor:pointer;" onclick="toggleSelectedLogsExpand()">
+              <div id="selected-logs-compact" style="font-family:monospace;font-size:0.7rem;color:#aaa;line-height:1.5;max-height:54px;overflow:hidden;"></div>
+              <span id="selected-logs-expand-hint" style="color:#00d4ff;font-size:0.7rem;">▼ tümünü gör</span>
+            </div>
+            <div id="selected-logs-full" style="display:none;font-family:monospace;font-size:0.7rem;color:#ccc;line-height:1.5;max-height:140px;overflow-y:auto;margin-bottom:8px;background:#0d172888;border-radius:6px;padding:6px;"></div>
+            <button onclick="aiAnalyzeSelectedLogs()"
+              style="width:100%;background:#00d4ff;color:#000;border:none;border-radius:7px;padding:7px;font-size:0.78rem;font-weight:700;cursor:pointer;">
+              🤖 Seçili Logları Analiz Et
+            </button>
+          </div>
+        </div>
+
+        <!-- Sağ Panel: Chat -->
+        <div style="display:flex;flex-direction:column;background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;min-height:0;overflow:hidden;">
+          <div style="padding:11px 16px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;flex-shrink:0;">
+            <span>🤖</span>
+            <span style="color:#e0e0e0;font-weight:600;font-size:0.88rem;">AI Güvenlik Asistanı</span>
+            <span style="color:#555;font-size:0.7rem;margin-left:auto;">gemma3:4b • Yerel Model</span>
+          </div>
+
+          <div id="ai-chat-messages" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;min-height:0;">
+            <div class="ai-msg ai-msg--bot">
+              Merhaba! Saldırı analizi, IP sorgulama, normal trafik anomalisi veya siber güvenlik soruları için buradayım.
+            </div>
+          </div>
+
+          <div style="padding:10px 12px;border-top:1px solid var(--border);display:flex;gap:8px;flex-shrink:0;">
+            <input id="ai-chat-input" type="text" placeholder="Soru sor... (saldırı, normal trafik, IP...)" onkeydown="if(event.key==='Enter')aiSendChat()"
+              style="flex:1;background:#0d1728;border:1px solid var(--border);border-radius:7px;padding:8px 12px;color:#e0e0e0;font-size:0.82rem;outline:none;" />
+            <button onclick="aiSendChat()" id="ai-send-btn"
+              style="background:#00d4ff;color:#000;border:none;border-radius:7px;padding:8px 16px;font-weight:700;cursor:pointer;font-size:0.82rem;white-space:nowrap;">Gönder</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       TOAST BİLDİRİM
+  ══════════════════════════════════════════════════════════════ -->
+  <div id="toast-container"></div>
+
+  <!-- ═══════════════════════════════════════════════════════════
+       SALDIRI MODAL
+  ══════════════════════════════════════════════════════════════ -->
+  <div class="modal-overlay" id="attack-modal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-header">
+        <div class="modal-alert-icon">⚠</div>
+        <h2 class="modal-title" id="modal-title">SALDIRI TESPİT EDİLDİ</h2>
+        <button class="modal-close" id="modal-close">✕</button>
+      </div>
+      <div class="modal-body" id="modal-body"></div>
+    </div>
+  </div>
+
+
+  <style>
+    .ai-analyze-btn {
+      background: none;
+      border: 1px solid var(--accent-cyan, #00d4ff);
+      color: var(--accent-cyan, #00d4ff);
+      border-radius: 6px;
+      padding: 2px 8px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: background 0.2s;
+    }
+    .ai-analyze-btn:hover { background: rgba(0,212,255,0.1); }
+    .ai-msg { padding:10px 14px; border-radius:10px; font-size:0.84rem; line-height:1.6; max-width:90%; }
+    .ai-msg--bot { background:var(--bg-secondary,#1a1f35); color:var(--text-primary,#e0e0e0); align-self:flex-start; }
+    .ai-msg--user { background:var(--accent-cyan,#00d4ff); color:#000; align-self:flex-end; font-weight:500; }
+    .ai-msg--thinking { color:var(--text-muted,#888); font-style:italic; align-self:flex-start; }
+    #ip-risk-list .risk-row { display:flex; align-items:center; gap:8px; padding:5px 0; border-bottom:1px solid var(--border-color,#2d3250); }
+    #ip-risk-list .risk-row:last-child { border-bottom:none; }
+    .risk-badge { padding:2px 7px; border-radius:4px; font-size:0.72rem; font-weight:600; }
+    .risk-kritik  { background:#ff4d4d22; color:#ff4d4d; border:1px solid #ff4d4d44; }
+    .risk-yüksek  { background:#ff8c0022; color:#ff8c00; border:1px solid #ff8c0044; }
+    .risk-orta    { background:#ffd70022; color:#ffd700; border:1px solid #ffd70044; }
+    .risk-düşük   { background:#00d4ff22; color:#00d4ff; border:1px solid #00d4ff44; }
+    .coord-badge  { font-size:0.7rem; color:#ff6b6b; background:#ff6b6b18; border:1px solid #ff6b6b33; border-radius:4px; padding:1px 5px; }
+    .log-line { cursor:pointer; transition:background 0.12s; user-select:none; }
+    .log-line.selected { background:rgba(0,212,255,0.10) !important; outline:1px solid rgba(0,212,255,0.35); }
+    .log-line.selected:hover { background:rgba(0,212,255,0.15) !important; }
+  </style>
+
+  <script src="/static/dashboard.js"></script>
+</body>
+</html>

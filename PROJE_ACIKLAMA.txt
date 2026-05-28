@@ -1,0 +1,568 @@
+==============================================================================
+        ADS GUARDIAN — SALDIRI TESPİT SİSTEMİ (PROJE AÇIKLAMASI)
+==============================================================================
+
+Bu belge, projenin tüm dosyalarını ve işlevlerini detaylıca açıklamaktadır.
+Projeyi hiç görmeyen birine anlatılır gibi yazılmıştır.
+
+------------------------------------------------------------------------------
+1. PROJE NEDİR?
+------------------------------------------------------------------------------
+
+ADS Guardian, bir web sunucusuna gelen HTTP trafiğini gerçek zamanlı olarak
+izleyen ve saldırıları otomatik olarak tespit eden bir siber güvenlik sistemidir.
+
+Sistem Docker üzerinde çalışan bir nginx web sunucusunun loglarını anlık olarak
+okur ve şu saldırı türlerini tespit eder:
+
+  - DoS (Denial of Service / Hizmet Engelleme): Sunucuyu çok sayıda istekle
+    bunaltmaya çalışan saldırılar. Makine öğrenmesi (Random Forest) ile tespit edilir.
+
+  - Brute Force (Kaba Kuvvet): /login, /admin gibi hassas sayfalara tekrarlı
+    giriş denemesi yapan saldırılar. Kural tabanlı skor sistemiyle tespit edilir.
+
+  - SQL Injection: URL parametrelerine "UNION SELECT", "DROP TABLE" gibi
+    zararlı SQL komutları yerleştiren saldırılar. Regex + anomali skoru ile tespit edilir.
+
+  - MITM (Man-in-the-Middle): Henüz implement edilmemiş, placeholder olarak
+    sistemde kayıtlı duruyor.
+
+Sistem iki farklı arayüz sunar:
+  a) Terminal modu (detect.py): Renkli terminal çıktısıyla anlık alarm basar.
+  b) Web dashboard (dashboard.py): Tarayıcıda gerçek zamanlı grafik ve tablo gösterir.
+
+------------------------------------------------------------------------------
+2. PROJE KLASÖR YAPISI
+------------------------------------------------------------------------------
+
+bitirme/
+├── ana prohje/              ← Asıl uygulama burası
+│   ├── run.py               ← Tek komutla her şeyi başlatan launcher
+│   ├── detect.py            ← Terminal modunda gerçek zamanlı tespit
+│   ├── dashboard.py         ← Web arayüzü backend (Flask + SocketIO)
+│   ├── train.py             ← Makine öğrenmesi modelini eğiten script
+│   ├── requirements.txt     ← Python bağımlılıkları
+│   ├── models/
+│   │   └── dos_model.pkl    ← Eğitilmiş Random Forest modeli (binary dosya)
+│   ├── detector/            ← Tespit motoru paketi
+│   │   ├── __init__.py      ← Boş, Python paket tanımlaması
+│   │   ├── base_attack.py   ← Tüm dedektörlerin türediği soyut temel sınıf
+│   │   ├── feature_extractor.py  ← Nginx logunu özellik vektörüne çevirir
+│   │   ├── attack_registry.py    ← Dedektörleri otomatik yükleyen plugin sistemi
+│   │   └── attacks/         ← Her saldırı türü ayrı dosyada
+│   │       ├── __init__.py      ← Boş, Python paket tanımlaması
+│   │       ├── dos_detector.py  ← DoS dedektörü (ML tabanlı)
+│   │       ├── brute_force.py   ← Brute force dedektörü (kural tabanlı)
+│   │       ├── sql_injection.py ← SQL injection dedektörü (regex + anomali)
+│   │       └── mitm_detector.py ← MITM dedektörü (henüz implement edilmedi)
+│   ├── static/
+│   │   ├── dashboard.css    ← Dashboard'un stil dosyası (koyu tema)
+│   │   └── dashboard.js     ← Dashboard'un frontend JavaScript kodu
+│   └── templates/
+│       └── dashboard.html   ← Dashboard'un HTML şablonu
+└── dos/
+    ├── attack.py            ← DoS saldırısı simüle eden TEST ARACI
+    └── requirements.txt     ← Test aracının bağımlılıkları
+
+------------------------------------------------------------------------------
+3. DOSYA DETAYLARI
+------------------------------------------------------------------------------
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: run.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Projeyi tek komutla başlatan "launcher" script.
+
+NASIL ÇALIŞIR:
+  python run.py komutu çalıştırılınca sırasıyla şunları yapar:
+    1. requirements.txt'teki eksik Python paketlerini otomatik yükler
+    2. models/dos_model.pkl dosyasının var olup olmadığını kontrol eder,
+       yoksa train.py'ı otomatik çalıştırıp modeli eğitir
+    3. Makinenin yerel ağ IP adresini tespit eder
+    4. dashboard.py'ı subprocess olarak başlatır
+
+PARAMETRELER:
+  --container  : İzlenecek Docker container adı (varsayılan: "hedef-sunucu")
+  --port       : Dashboard portu (varsayılan: 5000)
+  --skip-train : Model eğitimini atla
+
+ÖRNEK KULLANIM:
+  python run.py
+  python run.py --container benim-nginx --port 8080
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: detect.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Terminal modunda gerçek zamanlı saldırı tespit döngüsü.
+      Web arayüzü olmadan, saf terminal çıktısıyla çalışır.
+
+NASIL ÇALIŞIR:
+  1. Docker SDK ile belirtilen container'a bağlanır
+  2. Tüm kayıtlı dedektörleri yükler
+  3. Arka planda bir thread başlatır: SESSION_TIMEOUT_SECONDS (20 sn) boyunca
+     log gelmeyen IP'lerin saldırısının bittiğini ilan eder
+  4. Container log akışını okur, script başladıktan SONRA gelen logları işler
+     (geçmiş logları atlar)
+  5. Logları 50'lik batch'ler halinde işler (performans için)
+  6. Her batch için tüm aktif dedektörleri çalıştırır
+  7. Saldırı tespit edilirse 15 saniyelik cooldown ile alarm basar
+     (aynı IP için tekrarlı alarm bastırır)
+
+ALARM ÇIKTISI:
+  - 🔴 KRİTİK: Güven skoru > %80
+  - 🟡 UYARI : Güven skoru %55-80 arası
+  - Saldırı bitince özet rapor gösterir (süre, toplam istek, pik RPM)
+
+ÖNEMLİ DEĞİŞKENLER:
+  _attack_sessions : IP → oturum bilgisi (başlangıç zamanı, toplam istek, vb.)
+  _flagged_ips     : Şu an saldırı altında olan IP seti
+  ALERT_COOLDOWN_SECONDS = 15  (aynı IP için alarmlar arası minimum süre)
+  SESSION_TIMEOUT_SECONDS = 20 (bu kadar süre log gelmeyince saldırı bitti sayılır)
+
+PARAMETRELER:
+  --container : Docker container adı (varsayılan: "hedef-sunucu")
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: dashboard.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Web tabanlı gerçek zamanlı güvenlik dashboard'unun backend'i.
+      Flask web framework + Flask-SocketIO ile yazılmıştır.
+
+NASIL ÇALIŞIR:
+  4 ayrı arka plan thread paralel çalışır:
+
+  Thread 1 — _log_reader_thread:
+    Docker container loglarını okur, her satırı _process_line() ile işler.
+    Container bulunmazsa 5 saniye bekleyip tekrar dener.
+
+  Thread 2 — _socketio_emitter_thread:
+    _event_queue kuyruğundan event alır, bağlı tüm tarayıcılara Socket.IO
+    ile push eder. Bu sayede tarayıcı sayfayı yenilemeden veriyi alır.
+
+  Thread 3 — _cleanup_expired_sessions:
+    Her 5 saniyede bir aktif saldırı oturumlarını kontrol eder.
+    SESSION_TIMEOUT_SEC (30 sn) boyunca log gelmeyen IP'leri temizler.
+
+  Thread 4 — _uptime_thread:
+    Her saniye sistemi çalışma süresini günceller ve tarayıcıya gönderir.
+
+_process_line() FONKSİYONU (tek bir log satırını işler):
+  1. feature_extractor ile log satırını parse eder
+  2. Tüm dedektörleri sırayla çalıştırır
+  3. Saldırı tespit edilirse _event_queue'ya "attack" event'i koyar
+  4. Her log satırı için _event_queue'ya "log" event'i koyar
+  5. Dakika bazlı zaman serisini (_timeseries) günceller
+
+PAYLAŞILAN VERİ YAPILARI (thread-safe, _lock ile korunan):
+  _stats             : Toplam istek, saldırı, parse hatası sayıları
+  _attack_type_counts: Saldırı türü → kaç tane tespit edildi
+  _recent_logs       : Son 500 log satırı (ring buffer)
+  _attack_sessions   : Aktif saldırı oturumları (IP → oturum bilgisi)
+  _recent_attacks    : Son 100 saldırı kaydı
+  _timeseries        : Son 60 dakikanın istek/saldırı zaman serisi
+
+REST API ENDPOINTLERİ:
+  GET /              → Dashboard HTML sayfasını döner
+  GET /api/stats     → İstatistikler, aktif saldırılar, zaman serisi
+  GET /api/logs      → Son log satırları
+  GET /api/attacks   → Son tespit edilen saldırılar
+  GET /api/detectors → Yüklü dedektör listesi
+  GET /api/health    → Sistem sağlık durumu
+
+SOCKET.IO EVENTLERİ (backend → tarayıcı):
+  "init"    → Tarayıcı bağlandığında mevcut tüm veriyi gönderir
+  "log"     → Yeni log satırı
+  "attack"  → Yeni saldırı tespiti
+  "uptime"  → Her saniye çalışma süresi
+  "system"  → Sistem mesajları (hata vb.)
+
+PARAMETRELER:
+  --container : Docker container adı (varsayılan: "hedef-sunucu")
+  --port      : Flask portu (varsayılan: 5000)
+  --host      : Dinleme adresi (varsayılan: 0.0.0.0 = tüm arayüzler)
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: train.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: DoS tespiti için kullanılan Random Forest modelini eğitip kaydeder.
+      Gerçek trafik verisi olmadığı için sentetik veri üretir.
+
+NASIL ÇALIŞIR:
+  Adım 1: Sentetik veri üretimi
+    - 15.000 adet "normal trafik" örneği üretilir:
+        * Dakikada 1-15 istek (az yoğunluk)
+        * 200-5000 byte yanıt boyutu
+        * Ağırlıklı 200 OK durum kodu
+        * Normal uzunlukta User-Agent (50-200 karakter)
+    - 15.000 adet "DoS saldırısı" örneği üretilir:
+        * Dakikada 100-50.000 istek (çok yüksek yoğunluk)
+        * 0-500 byte yanıt boyutu (küçük payload)
+        * 503/408/429 gibi hata kodları
+        * Kısa/boş User-Agent (0-60 karakter)
+
+  Adım 2: %80 eğitim / %20 test ayrımı yapılır
+
+  Adım 3: Random Forest Classifier eğitilir
+    - 200 karar ağacı (n_estimators=200)
+    - Sınırsız derinlik (max_depth=None)
+    - Dengeli sınıf ağırlığı (class_weight="balanced")
+    - Tüm CPU çekirdekleri kullanılır (n_jobs=-1)
+
+  Adım 4: Test seti üzerinde doğruluk raporu yazdırılır
+
+  Adım 5: Model models/dos_model.pkl olarak kaydedilir (joblib ile)
+
+ÖZELLIK SÜTUNLARI (modele giren veriler):
+  - requests_per_ip_last_60s : Son 60 saniyede o IP'den kaç istek geldi
+  - bytes_sent               : HTTP yanıt boyutu
+  - status_code              : HTTP durum kodu (200, 404, 503 vb.)
+  - method_encoded           : HTTP metodu sayısal (GET=0, POST=1 vb.)
+  - path_depth               : URL'deki klasör derinliği (/a/b/c → 2)
+  - user_agent_length        : User-Agent başlığının karakter uzunluğu
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: detector/base_attack.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Tüm saldırı dedektörlerinin uygulaması gereken soyut temel sınıf.
+      Python'un ABC (Abstract Base Class) mekanizmasını kullanır.
+
+İÇERİK:
+  class BaseAttackDetector (ABC):
+    name     : str  → Dedektörün benzersiz adı ("dos", "brute_force" vb.)
+    detect() : dict → bool   → Saldırı var mı? True/False döner
+    confidence() : dict → float → 0.0-1.0 arasında güven skoru
+
+  Yeni bir dedektör eklemek için bu sınıftan türetmek ve iki metodu
+  implement etmek zorunludur. Aksi halde Python sınıfın örneğini
+  oluşturmaya izin vermez.
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: detector/attack_registry.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Dedektörleri otomatik bulan ve yükleyen plugin/kayıt sistemi.
+      Yeni bir dedektör eklemek için başka hiçbir dosyaya dokunmak gerekmez.
+
+NASIL ÇALIŞIR:
+  1. _registry sözlüğü dedektör adı → sınıf eşlemesini tutar
+  2. @register dekoratörü bir sınıfı bu sözlüğe ekler
+  3. _auto_load_attacks() fonksiyonu detector/attacks/ klasöründeki tüm
+     .py dosyalarını otomatik olarak import eder
+  4. Import sırasında @register dekoratörü çalışır ve sınıfı kaydeder
+  5. get_all_detectors() tüm kayıtlı sınıfların örneklerini döner
+
+KULLANIM ÖRNEĞİ:
+  from detector.attack_registry import get_all_detectors
+  detectors = get_all_detectors()  # [DosDetector(), BruteForceDetector(), ...]
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: detector/feature_extractor.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Ham nginx log satırını makine öğrenmesi modelinin anlayabileceği
+      sayısal özellik vektörüne dönüştürür.
+
+NGINX LOG FORMATI (combined):
+  192.168.1.1 - - [01/Jan/2026:12:00:00 +0000] "GET /index.html HTTP/1.1"
+  200 1234 "-" "Mozilla/5.0..." 0.023
+
+parse_log_line() FONKSİYONU:
+  Regex ile log satırını parçalar ve şu sözlüğü üretir:
+    ip                       : Kaynak IP adresi ("192.168.1.1")
+    path                     : İstenen URL yolu ("/index.html")
+    method                   : HTTP metodu ("GET", "POST" vb.)
+    requests_per_ip_last_60s : Kayan pencere — o IP'nin son 60 sn istek sayısı
+    bytes_sent               : Yanıt boyutu (byte)
+    status_code              : HTTP durum kodu (200, 404 vb.)
+    method_encoded           : Metod sayısal kodlaması
+    path_depth               : URL derinliği
+    user_agent_length        : User-Agent uzunluğu
+    response_time_ms         : Yanıt süresi (milisaniye)
+    sqli_keyword_score       : SQL anahtar kelime skoru (0.0-1.0)
+    sqli_char_score          : Tehlikeli karakter skoru (0.0-1.0)
+    sqli_pattern_score       : Regex örüntü skoru (0.0-1.0)
+    sqli_anomaly_score       : Toplam SQLi anomali skoru (0.0-1.0)
+    sqli_matched_count       : Eşleşen kural sayısı
+
+KAYAN PENCERE (Sliding Window):
+  Her IP için son 60 saniyedeki tüm istek zamanları bir deque'da tutulur.
+  Her yeni istekte 60 saniyeden eski kayıtlar silinir.
+  Bu sayede "son dakikada kaç istek" bilgisi her an güncel tutulur.
+
+SQLi SKORING MOTORU (compute_sqli_scores):
+  3 katmanlı scoring:
+    1. Anahtar kelime skoru: "union"(0.35), "drop"(0.40), "xp_cmdshell"(0.50)
+       gibi SQL anahtar kelimeleri URL'de var mı?
+    2. Karakter skoru: %27 (tek tırnak), %3B (noktalı virgül) gibi
+       URL-encoded tehlikeli karakterler var mı?
+    3. Regex örüntü skoru: "UNION SELECT"(0.90), ";DROP TABLE"(0.90),
+       "SLEEP("(0.85) gibi bilinen saldırı örüntüleri var mı?
+  Toplam anomali skoru: pattern*0.60 + keyword*0.25 + char*0.15
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: detector/attacks/dos_detector.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Random Forest makine öğrenmesi modeliyle DoS saldırısı tespit eder.
+
+NASIL ÇALIŞIR:
+  - Başlatılırken models/dos_model.pkl dosyasını joblib ile yükler
+  - detect(): özellik vektörünü modele verir, olasılık >= 0.55 ise True döner
+  - confidence(): modelin "DoS saldırısı" sınıfı için verdiği olasılığı döner
+  - detect_batch() / confidence_batch(): birden fazla log satırını aynı anda
+    işler (numpy array ile toplu predict_proba çağrısı — çok daha hızlı)
+
+EŞİK DEĞERİ: 0.55 (model bu olasılığın üstünde DoS der)
+
+ÖZELLIK SÜTUNLARI (train.py ile aynı sıra zorunlu):
+  requests_per_ip_last_60s, bytes_sent, status_code,
+  method_encoded, path_depth, user_agent_length
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: detector/attacks/brute_force.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Kural tabanlı skor sistemiyle brute force saldırısı tespit eder.
+      Makine öğrenmesi kullanmaz, deterministik kurallara dayanır.
+
+PUANLAMA SİSTEMİ (toplam puan >= 0.50 ise saldırı):
+  +0.30 → HTTP durum kodu 401 veya 403 (kimlik doğrulama hatası)
+  +0.25 → Hassas path: /login, /admin, /wp-login.php, /api/auth vb.
+  +0.25 → Son 60 sn'de aynı IP'den >20 istek (yüksek frekans)
+  +0.10 → Son 60 sn'de aynı IP'den 10-20 istek (orta frekans)
+  +0.10 → HTTP metodu POST (giriş formları POST kullanır)
+  +0.10 → User-Agent uzunluğu <20 karakter (botlar kısa UA gönderir)
+
+ÖRNEK: Bir IP /login'e saniyede 5 kez POST ile 401 alıyorsa:
+  401 kodu (+0.30) + hassas path (+0.25) + yüksek frekans (+0.25) +
+  POST (+0.10) = 0.90 → SALDIRI (eşik 0.50'nin çok üstünde)
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: detector/attacks/sql_injection.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: İki katmanlı yaklaşımla SQL Injection saldırısı tespit eder.
+
+KATMAN 1 — Kritik örüntü regex (anlık, hızlı):
+  Şu örüntülerden biri eşleşirse anında saldırı → güven: %95
+    - UNION SELECT (veya UNION ALL SELECT)
+    - ;DROP / ;INSERT / ;UPDATE / ;DELETE
+    - SLEEP( veya WAITFOR DELAY(
+    - information_schema.
+    - xp_cmdshell
+    - LOAD_FILE(
+    - INTO OUTFILE
+
+KATMAN 2 — Orta riskli örüntü regex:
+  2 veya daha fazlası eşleşirse saldırı:
+    - OR x=x (mantıksal enjeksiyon)
+    - AND x=x
+    - /* ... */ veya -- (yorum enjeksiyonu)
+    - 0x... (hex kodlama bypass)
+    - (SELECT ... (subquery)
+
+KATMAN 3 — Anomali skoru (feature_extractor'dan):
+  sqli_anomaly_score >= 0.50 ise saldırı
+
+URL DECODE: Saldırılar genelde URL-encoded gelir (%27 = ').
+  Hem ham hem decode edilmiş hali kontrol edilir.
+
+explain() metodu: Saldırı kararının tam açıklamasını döner
+  (debugging ve dashboard için kullanılabilir).
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: detector/attacks/mitm_detector.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: MITM dedektörü için placeholder. Henüz implement edilmemiş.
+      Sisteme kayıtlı ama her zaman False döner (saldırı tespit etmez).
+
+PLANLANAN ÖZELLİKLER (TODO olarak bırakıldı):
+  - HTTP 502/525/526 durum kodları + beklenmedik kaynak IP kombinasyonu
+  - X-Forwarded-For başlığı manipülasyonu tespiti
+  - SSL/TLS handshake anomalileri
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: templates/dashboard.html
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Web dashboard'unun HTML şablonu. Flask'ın render_template() ile sunar.
+
+YAPISI:
+  - Sidebar navigasyon: Genel Bakış / Saldırılar / Canlı Loglar sekmeleri
+  - Top bar: Sayfa başlığı, tehdit seviyesi göstergesi, saat, duraklatma butonu
+  - 3 ana section (JavaScript ile gösterilip gizlenir):
+      #section-overview : İstatistik kartları + grafikler + aktif oturumlar tablosu
+      #section-attacks  : Son saldırılar tablosu (arama filtreli)
+      #section-logs     : Gerçek zamanlı log akışı (filtre + otomatik scroll)
+  - Toast bildirimi: Sağ altta beliren geçici uyarı kutuları
+  - Saldırı modal: Yüksek güven skoru (>%70) saldırılarda açılan popup
+
+DIŞ BAĞIMLILIKLAR:
+  - Chart.js 4.4.0 (CDN) — grafikler için
+  - Socket.IO 4.7.2 (CDN) — gerçek zamanlı iletişim için
+  - Google Fonts: Inter + JetBrains Mono
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: static/dashboard.js
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Dashboard'un tüm frontend mantığı. Vanilla JavaScript ile yazılmıştır.
+
+ANA BÖLÜMLER:
+
+  STATE YÖNETİMİ:
+    paused, logFilter, logCount, attackCount, prevRequests, prevAttacks
+
+  SOCKET.IO BAĞLANTISI:
+    "init"    → Bağlanınca mevcut veriyi yükle
+    "log"     → appendLog() ile log satırı ekle
+    "attack"  → prependAttack() + showToast() + koşullu showAttackModal()
+    "uptime"  → Çalışma süresini güncelle
+    "system"  → Hata mesajı toast göster
+
+  GRAFİKLER (Chart.js):
+    tsChart  → Trafik zaman serisi (çizgi grafik, dakika bazlı)
+    doChart  → Saldırı türü dağılımı (doughnut/halka grafik)
+
+  TEHDIT SEVİYESİ:
+    saldırı/toplam oranına göre: DÜŞÜK / ORTA / YÜKSEK / KRİTİK
+
+  LOG AKIŞI:
+    - DOM'da en fazla 300 satır tutulur (eski satırlar silinir)
+    - "Tümü / Saldırı / Normal" filtresiyle filtreleme
+    - Otomatik scroll toggle
+    - Duraklatma butonu (paused=true iken yeni satır eklenmez)
+
+  SALDIRI TABLOSU:
+    - DOM'da en fazla 100 satır
+    - IP veya tür bazlı arama filtresi
+    - Güven skoru görsel progress bar ile gösterilir
+
+  REST API YEDEK:
+    Her 5 saniyede /api/stats çağırır (Socket.IO kesilirse veri akışı devam eder)
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: static/dashboard.css
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: Dashboard'un koyu tema stil dosyası.
+
+TASARIM:
+  - Koyu lacivert/siyah arka plan (#0d1728, #0a1020)
+  - Mavi, kırmızı, turuncu, mor vurgu renkleri
+  - Sidebar + ana içerik yan yana layout (CSS Grid/Flexbox)
+  - Responsive tasarım
+  - Saldırı satırları kırmızı arka planla vurgulanır
+  - Güven çubuğu animasyonlu yüzde göstergesi
+  - Pill (etiket) renkleri: DoS=kırmızı, BruteForce=turuncu,
+    SQLi=mor, MITM=sarı, Normal=gri
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: requirements.txt
+──────────────────────────────────────────────────────────────────────────────
+Projenin Python bağımlılıkları:
+
+  docker          → Docker container'larına Python SDK ile bağlanmak için
+  scikit-learn    → Random Forest modeli (eğitim ve tahmin)
+  numpy           → Sayısal dizi işlemleri
+  joblib          → Model kaydetme/yükleme (.pkl dosyası)
+  colorama        → Terminal renkli çıktı (Windows uyumlu)
+  flask           → Web framework (dashboard backend)
+  flask-socketio  → Gerçek zamanlı WebSocket iletişimi
+  eventlet        → Flask-SocketIO için async motor
+
+──────────────────────────────────────────────────────────────────────────────
+DOSYA: dos/attack.py
+──────────────────────────────────────────────────────────────────────────────
+AMAÇ: DoS saldırısı simüle eden TEST ARACI.
+      SADECE eğitim/test ortamında kendi sunucunuza karşı kullanın.
+
+NASIL ÇALIŞIR:
+  - Belirtilen URL'ye çok sayıda thread ile eşzamanlı HTTP GET isteği gönderir
+  - Her thread sürekli istek gönderir (stop_event verilene kadar)
+  - Belirtilen süre dolunca durdurur ve özet rapor basar
+
+PARAMETRELER:
+  --url      : Hedef URL (varsayılan: http://localhost:8080)
+  --threads  : Eşzamanlı thread sayısı (varsayılan: 10)
+  --duration : Saldırı süresi saniye (varsayılan: 30)
+
+ÖRNEK: python dos/attack.py --url http://localhost:8080 --threads 50 --duration 60
+
+------------------------------------------------------------------------------
+4. SİSTEMİN ÇALIŞMA AKIŞI (UÇTAN UCA)
+------------------------------------------------------------------------------
+
+HAZIRLIK:
+  1. Docker'da hedef-sunucu adlı nginx container çalışıyor olmalı
+  2. python run.py → model yoksa eğitir, dashboard'u başlatır
+
+ÇALIŞMA ANI:
+  3. dashboard.py başlar:
+     - 4 thread başlatılır
+     - _log_reader_thread Docker'a bağlanır, log akışını okur
+     - Her log satırı parse edilir → özellik vektörü çıkarılır
+     - Tüm dedektörler (DoS, BruteForce, SQLi, MITM) sırayla çalıştırılır
+     - Sonuç _event_queue'ya eklenir
+     - _socketio_emitter_thread kuyruktan alıp tarayıcılara gönderir
+
+  4. Tarayıcıda http://localhost:5000 açılır:
+     - Socket.IO bağlantısı kurulur
+     - Mevcut veri (init eventi) yüklenir
+     - Gerçek zamanlı loglar ve saldırılar anlık güncellenir
+
+SALDIRI TESPİTİ:
+  5. dos/attack.py ile test saldırısı başlatılırsa:
+     - nginx loglarına yüksek frekanslı istekler düşer
+     - requests_per_ip_last_60s değeri 100+ olur
+     - DoS dedektörü modeli çalıştırır → olasılık 0.90+ → SALDIRI
+     - Dashboard'da saldırı tablosuna eklenir, toast bildirimi çıkar
+     - Güven > %70 ise popup modal açılır
+     - Tehdit seviyesi "KRİTİK"e yükselir
+
+------------------------------------------------------------------------------
+5. GENİŞLETME — YENİ SALDIRI TİPİ EKLEME
+------------------------------------------------------------------------------
+
+Sisteme yeni bir saldırı tipi eklemek son derece basittir:
+
+  1. detector/attacks/yeni_tip.py dosyası oluştur
+  2. Şu şablonu kullan:
+
+     from detector.base_attack import BaseAttackDetector
+     from detector.attack_registry import register
+
+     @register
+     class YeniTipDetector(BaseAttackDetector):
+         name = "yeni_tip"
+
+         def detect(self, features: dict) -> bool:
+             # Buraya tespit mantığı
+             return features["requests_per_ip_last_60s"] > 200
+
+         def confidence(self, features: dict) -> float:
+             # 0.0 - 1.0 arası güven skoru
+             return min(features["requests_per_ip_last_60s"] / 500, 1.0)
+
+  3. Başka hiçbir dosyaya dokunmaya gerek yok.
+     attack_registry.py klasörü otomatik tarar ve dedektörü yükler.
+
+------------------------------------------------------------------------------
+6. TEKNİK NOTLAR
+------------------------------------------------------------------------------
+
+THREAD GÜVENLİĞİ:
+  dashboard.py'da tüm paylaşılan veri yapıları threading.Lock() ile korunur.
+  _lock = threading.Lock() ile kritik bölümler "with _lock:" içinde değiştirilir.
+
+COOLDOWN MEKANİZMASI:
+  Aynı IP'den gelen saldırılar için tekrarlı alarm bastırılır:
+    - detect.py: 15 saniye cooldown
+    - dashboard.py: 10 saniye cooldown
+  Bu, ekranın veya tablonun aynı IP'nin binlerce kaydıyla dolmasını önler.
+
+BATCH İŞLEME (detect.py):
+  50 log satırı biriktikten sonra toplu işlenir.
+  DoS dedektörü numpy array ile tek seferde predict_proba çağırır.
+  Bu, tek tek işlemeye göre ~10x daha hızlıdır.
+
+MODEL SAKLAMA:
+  joblib.dump() ile .pkl (pickle) formatında kaydedilir.
+  scikit-learn modelleri için numpy array optimizasyonu içerir.
+  Model bir kez yüklenir (_get_detectors lazy loading), sonra bellekte kalır.
+
+==============================================================================
+                              DOSYA SONU
+==============================================================================
