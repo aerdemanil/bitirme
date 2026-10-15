@@ -12,7 +12,7 @@ Kullanım:
 Gereksinimler:
     - Docker'ın makinede çalışıyor olması
     - `hedef-sunucu` container'ının ayakta olması
-    - `temizlik/train_cic_http.py` ile modelin önce eğitilmiş olması
+    - `ml_pipeline/train_cic_http.py` ile modelin önce eğitilmiş olması
 """
 
 import argparse

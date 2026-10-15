@@ -30,11 +30,11 @@ Veri seti özellikleri:
   - 80+ özellik (flow paket hızı, paket boyutu, port, protokol vb.)
   - Etiketler: DoS, BruteForce, Benign ve diğerleri
 
-Dosya: temizlik/temizle.py
+Dosya: ml_pipeline/clean_dataset.py
 
 
 ─────────────────────────────────────────────
-3. VERİ TEMİZLEME (temizle.py)
+3. VERİ TEMİZLEME (clean_dataset.py)
 ─────────────────────────────────────────────
 Hamveri çok büyük olduğu için (4+ GB dosyalar) seçici bir strateji uyguladım:
 
@@ -96,7 +96,7 @@ Kütüphane: scikit-learn
 ─────────────────────────────────────────────
 5. CONFUSION MATRIX VE GRAFİKLER
 ─────────────────────────────────────────────
-Her iki model için aşağıdaki grafikler üretildi (temizlik/grafikler/ klasörü):
+Her iki model için aşağıdaki grafikler üretildi (ml_pipeline/plots/ klasörü):
 
   Grafik 1/9  : Sınıf Dağılımı (bar chart — kaç satır DoS/BF/Benign)
   Grafik 2/10 : Confusion Matrix (seaborn heatmap)
@@ -114,8 +114,8 @@ Confusion Matrix nasıl oluşturuldu:
 ─────────────────────────────────────────────
 6. DETECTION SİSTEMİ NASIL ÇALIŞIYOR?
 ─────────────────────────────────────────────
-Ana dosya: ana prohje/detector/feature_extractor.py
-           ana prohje/detector/attacks/dos_detector.py
+Ana dosya: app/detector/feature_extractor.py
+           app/detector/attacks/dos_detector.py
 
 Akış şeması:
   [Nginx Log Satırı]
@@ -219,7 +219,7 @@ Bağımsız bir HTTP flood scripti — sadece test amaçlı:
 ─────────────────────────────────────────────
 
   [CIC-IDS2018 Ham Veri]
-       ↓ temizle.py (pandas, chunk okuma)
+       ↓ clean_dataset.py (pandas, chunk okuma)
   [cleaned_dataset.csv]
        ↓ train_cic_http.py (feature mapping + RF)
   [dos_model.pkl + ml_scaler.pkl + ml_encoder.pkl]

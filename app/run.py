@@ -59,7 +59,7 @@ def check_model(project_dir: str) -> bool:
 def train_model(_project_dir: str) -> None:
     """Model eksikse kullanıcıya bilgi verir."""
     print(f"\n{RED}❌ Model dosyası bulunamadı.{RESET}")
-    print(f"{YELLOW}   Lütfen önce 'temizlik/train_cic_http.py' scriptini çalıştırın{RESET}")
+    print(f"{YELLOW}   Lütfen önce 'ml_pipeline/train_cic_http.py' scriptini çalıştırın{RESET}")
     print(f"{YELLOW}   ve üretilen ml_model.pkl dosyasını models/dos_model.pkl olarak kopyalayın.{RESET}")
     sys.exit(1)
 

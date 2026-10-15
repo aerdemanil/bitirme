@@ -3,7 +3,7 @@ dos_detector.py
 ---------------
 Random Forest tabanlı DoS (Denial of Service) saldırı dedektörü.
 
-Model `temizlik/train_cic_http.py` ile CIC-IDS2018 gerçek verisi kullanılarak
+Model `ml_pipeline/train_cic_http.py` ile CIC-IDS2018 gerçek verisi kullanılarak
 eğitilir ve `models/dos_model.pkl` olarak kaydedilir.
 """
 

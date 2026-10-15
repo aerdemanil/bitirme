@@ -28,16 +28,16 @@ ENV/
 *.h5
 
 # Grafik çıktıları (generate ediliyor)
-temizlik/grafikler/
+ml_pipeline/plots/
 *.png
 *.jpg
 *.jpeg
 *.svg
 
 # Model raporları ve ara çıktılar
-temizlik/*_rapor.txt
-temizlik/label_dagilim.txt
-temizlik/sql_preview.txt
+ml_pipeline/*_report.txt
+ml_pipeline/label_distribution.txt
+ml_pipeline/sql_preview.txt
 
 # Bitirme belgesi ve sunum notları
 *.docx

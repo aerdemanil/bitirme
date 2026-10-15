@@ -11,15 +11,15 @@ from sklearn.pipeline import Pipeline
 from sklearn.metrics import (classification_report, confusion_matrix,
                              roc_curve, auc, average_precision_score, precision_recall_curve)
 
-KLASOR = r'c:\Users\aerde\Desktop\bitirme\temizlik'
-GRAFIK = os.path.join(KLASOR, 'grafikler')
-os.makedirs(GRAFIK, exist_ok=True)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PLOTS_DIR = os.path.join(BASE_DIR, 'plots')
+os.makedirs(PLOTS_DIR, exist_ok=True)
 
 sns.set_theme(style='darkgrid', palette='muted')
 
 # ── 1. VERİ YÜKLE ────────────────────────────────────────────────────────────
-def yukle(fname, encoding):
-    df = pd.read_csv(os.path.join(KLASOR, fname), encoding=encoding)
+def load(fname, encoding):
+    df = pd.read_csv(os.path.join(BASE_DIR, fname), encoding=encoding)
     df = df[['Sentence', 'Label']].copy()
     df['Label'] = df['Label'].astype(str).str.strip()
     df = df[df['Label'].isin(['0', '1'])]
@@ -29,21 +29,21 @@ def yukle(fname, encoding):
     return df
 
 print('Veriler yükleniyor...')
-parcalar = []
+parts = []
 for fname, enc in [('sqli.csv', 'utf-16'), ('sqliv2.csv', 'utf-16'), ('SQLiV3.csv', 'latin1')]:
     try:
-        df = yukle(fname, enc)
+        df = load(fname, enc)
     except Exception:
-        df = yukle(fname, 'latin1')
+        df = load(fname, 'latin1')
     print(f'  {fname}: {len(df):,} satir | 0={( df.Label==0).sum():,} | 1={(df.Label==1).sum():,}')
-    parcalar.append(df)
+    parts.append(df)
 
-veri = pd.concat(parcalar, ignore_index=True).drop_duplicates(subset='Sentence')
-veri = veri.sample(frac=1, random_state=42).reset_index(drop=True)
-print(f'\nBirlesik: {len(veri):,} satir | Benign={( veri.Label==0).sum():,} | SQLi={(veri.Label==1).sum():,}')
+data = pd.concat(parts, ignore_index=True).drop_duplicates(subset='Sentence')
+data = data.sample(frac=1, random_state=42).reset_index(drop=True)
+print(f'\nBirlesik: {len(data):,} satir | Benign={( data.Label==0).sum():,} | SQLi={(data.Label==1).sum():,}')
 
-X = veri['Sentence']
-y = veri['Label']
+X = data['Sentence']
+y = data['Label']
 
 # ── 2. TF-IDF (karakter n-gram) ──────────────────────────────────────────────
 # SQL injection için karakter düzeyinde n-gram çok etkili:
@@ -69,11 +69,11 @@ y_pred = model.predict(X_test)
 y_prob = model.predict_proba(X_test)[:, 1]
 
 # ── 4. RAPOR ─────────────────────────────────────────────────────────────────
-rapor = classification_report(y_test, y_pred, target_names=['Benign', 'SQLi'])
+report = classification_report(y_test, y_pred, target_names=['Benign', 'SQLi'])
 print('\n=== Siniflandirma Raporu ===')
-print(rapor)
-with open(os.path.join(KLASOR, 'sqli_model_rapor.txt'), 'w', encoding='utf-8') as f:
-    f.write(rapor)
+print(report)
+with open(os.path.join(BASE_DIR, 'sqli_model_report.txt'), 'w', encoding='utf-8') as f:
+    f.write(report)
 
 # ── GRAFİK 1: Sınıf Dağılımı ─────────────────────────────────────────────────
 fig, ax = plt.subplots(figsize=(6, 4))
@@ -84,7 +84,7 @@ ax.set_ylabel('Satır Sayısı')
 for i, v in enumerate(counts.values):
     ax.text(i, v + 100, f'{v:,}', ha='center', fontweight='bold')
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '1_sqli_sinif_dagilimi.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '1_sqli_sinif_dagilimi.png'), dpi=150)
 plt.close()
 print('Grafik 1 kaydedildi: sqli_sinif_dagilimi.png')
 
@@ -98,7 +98,7 @@ ax.set_title('SQL Injection - Confusion Matrix')
 ax.set_xlabel('Tahmin')
 ax.set_ylabel('Gerçek')
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '2_sqli_confusion_matrix.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '2_sqli_confusion_matrix.png'), dpi=150)
 plt.close()
 print('Grafik 2 kaydedildi: sqli_confusion_matrix.png')
 
@@ -113,7 +113,7 @@ ax.set_xlabel('False Positive Rate')
 ax.set_ylabel('True Positive Rate')
 ax.legend(loc='lower right')
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '3_sqli_roc_curve.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '3_sqli_roc_curve.png'), dpi=150)
 plt.close()
 print('Grafik 3 kaydedildi: sqli_roc_curve.png')
 
@@ -134,7 +134,7 @@ axes[1].set_xlabel('Katsayı')
 
 plt.suptitle('TF-IDF Karakter N-gram Katsayıları', fontsize=13)
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '4_sqli_ngram_katsayilari.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '4_sqli_ngram_katsayilari.png'), dpi=150)
 plt.close()
 print('Grafik 4 kaydedildi: sqli_ngram_katsayilari.png')
 
@@ -148,7 +148,7 @@ ax.set_xlabel('Recall')
 ax.set_ylabel('Precision')
 ax.legend(loc='lower left')
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '5_sqli_pr_curve.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '5_sqli_pr_curve.png'), dpi=150)
 plt.close()
 print('Grafik 5 kaydedildi: sqli_pr_curve.png')
 
@@ -181,25 +181,25 @@ ax.set_ylim(0.90, 1.01)
 ax.set_title('SQLi - 5-Fold Cross-Validation Sonuçları (Ortalama ± Std)')
 ax.set_ylabel('Skor')
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '6_sqli_cross_validation.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '6_sqli_cross_validation.png'), dpi=150)
 plt.close()
 print('Grafik 6 kaydedildi: sqli_cross_validation.png')
 
-cv_rapor = '\n=== 5-Fold Cross-Validation ===\n'
+cv_report = '\n=== 5-Fold Cross-Validation ===\n'
 for metric, scores in cv_metrics.items():
-    cv_rapor += f'{metric}: {scores.mean():.4f} (±{scores.std():.4f})\n'
-print(cv_rapor)
-with open(os.path.join(KLASOR, 'sqli_model_rapor.txt'), 'a', encoding='utf-8') as f:
-    f.write(cv_rapor)
+    cv_report += f'{metric}: {scores.mean():.4f} (±{scores.std():.4f})\n'
+print(cv_report)
+with open(os.path.join(BASE_DIR, 'sqli_model_report.txt'), 'a', encoding='utf-8') as f:
+    f.write(cv_report)
 
 # ── KAYDET ────────────────────────────────────────────────────────────────────
-with open(os.path.join(KLASOR, 'sqli_model.pkl'), 'wb') as f:
+with open(os.path.join(BASE_DIR, 'sqli_model.pkl'), 'wb') as f:
     pickle.dump(model, f)
-with open(os.path.join(KLASOR, 'sqli_vectorizer.pkl'), 'wb') as f:
+with open(os.path.join(BASE_DIR, 'sqli_vectorizer.pkl'), 'wb') as f:
     pickle.dump(vectorizer, f)
 
 print('\n=== Tüm dosyalar kaydedildi ===')
 print('  sqli_model.pkl')
 print('  sqli_vectorizer.pkl')
-print('  sqli_model_rapor.txt')
-print('  grafikler/1-6 arasi PNG')
+print('  sqli_model_report.txt')
+print('  plots/1-6 arasi PNG')
