@@ -2,10 +2,10 @@ import pandas as pd
 import os
 from collections import defaultdict
 
-KLASOR = r'c:\Users\aerde\Desktop\bitirme\temizlik'
-CIKTI  = os.path.join(KLASOR, 'cleaned_dataset.csv')
-CHUNK  = 100_000
-HEDEF  = 50_000
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+OUTPUT   = os.path.join(BASE_DIR, 'cleaned_dataset.csv')
+CHUNK    = 100_000
+TARGET   = 50_000
 
 # Hangi label hangi kategoriye giriyor
 LABEL_MAP = {
@@ -24,7 +24,7 @@ LABEL_MAP = {
 }
 
 # Her kategori için hangi dosyalar taranacak (gereksiz 4GB dosyayı atla)
-DOSYA_ONCELIK = {
+FILE_PRIORITY = {
     'DoS': [
         '02-15-2018.csv',
         '02-16-2018.csv',
@@ -42,47 +42,47 @@ DOSYA_ONCELIK = {
     ],
 }
 
-def topla(kategori, hedef):
-    parcalar = []
-    toplam   = 0
-    for fname in DOSYA_ONCELIK[kategori]:
-        if toplam >= hedef:
+def collect(category, target):
+    parts = []
+    total = 0
+    for fname in FILE_PRIORITY[category]:
+        if total >= target:
             break
-        yol = os.path.join(KLASOR, fname)
-        print(f'  [{kategori}] {fname} taranıyor...', flush=True)
-        for chunk in pd.read_csv(yol, chunksize=CHUNK, low_memory=False,
+        path = os.path.join(BASE_DIR, fname)
+        print(f'  [{category}] {fname} taranıyor...', flush=True)
+        for chunk in pd.read_csv(path, chunksize=CHUNK, low_memory=False,
                                   on_bad_lines='skip'):
             chunk.columns = chunk.columns.str.strip()
-            mask = chunk['Label'].map(LABEL_MAP) == kategori
-            secilen = chunk[mask].copy()
-            secilen['Label'] = kategori
-            parcalar.append(secilen)
-            toplam += len(secilen)
-            if toplam >= hedef:
+            mask = chunk['Label'].map(LABEL_MAP) == category
+            selected = chunk[mask].copy()
+            selected['Label'] = category
+            parts.append(selected)
+            total += len(selected)
+            if total >= target:
                 break
 
-    if not parcalar:
+    if not parts:
         return pd.DataFrame()
 
-    df = pd.concat(parcalar, ignore_index=True)
+    df = pd.concat(parts, ignore_index=True)
     df = df.sample(frac=1, random_state=42).reset_index(drop=True)
-    return df.head(hedef)
+    return df.head(target)
 
 print('=== Temizleme başladı ===\n')
 
-sonuclar = []
-for kategori in ['DoS', 'BruteForce', 'Benign']:
-    print(f'[{kategori}] toplanıyor...')
-    df = topla(kategori, HEDEF)
+results = []
+for category in ['DoS', 'BruteForce', 'Benign']:
+    print(f'[{category}] toplanıyor...')
+    df = collect(category, TARGET)
     print(f'  -> {len(df):,} satır toplandı\n')
-    sonuclar.append(df)
+    results.append(df)
 
 print('Birleştiriliyor ve karıştırılıyor...')
-final = pd.concat(sonuclar, ignore_index=True)
+final = pd.concat(results, ignore_index=True)
 final = final.sample(frac=1, random_state=42).reset_index(drop=True)
 
-print(f'Kaydediliyor: {CIKTI}')
-final.to_csv(CIKTI, index=False)
+print(f'Kaydediliyor: {OUTPUT}')
+final.to_csv(OUTPUT, index=False)
 
 print('\n=== Tamamlandı ===')
 print(f'Toplam satır : {len(final):,}')

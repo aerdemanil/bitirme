@@ -14,15 +14,15 @@ from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.metrics import classification_report, confusion_matrix, roc_curve, auc
 
-KLASOR = r'c:\Users\aerde\Desktop\bitirme\temizlik'
-GRAFIK = os.path.join(KLASOR, 'grafikler')
-os.makedirs(GRAFIK, exist_ok=True)
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PLOTS_DIR = os.path.join(BASE_DIR, 'plots')
+os.makedirs(PLOTS_DIR, exist_ok=True)
 
 sns.set_theme(style='darkgrid', palette='muted')
 
 # ── 1. VERİ ──────────────────────────────────────────────────────────────────
 print('Veri yükleniyor...')
-df = pd.read_csv(os.path.join(KLASOR, 'cleaned_dataset.csv'), low_memory=False)
+df = pd.read_csv(os.path.join(BASE_DIR, 'cleaned_dataset.csv'), low_memory=False)
 df.columns = df.columns.str.strip()
 print(f'  {len(df):,} satır yüklendi | Sınıflar: {df["Label"].value_counts().to_dict()}')
 
@@ -97,12 +97,12 @@ model.fit(X_train, y_train)
 y_pred = model.predict(X_test)
 
 # ── 5. RAPOR ─────────────────────────────────────────────────────────────────
-rapor = classification_report(y_test, y_pred, target_names=le.classes_)
+report = classification_report(y_test, y_pred, target_names=le.classes_)
 print('\n=== Sınıflandırma Raporu ===')
-print(rapor)
-with open(os.path.join(KLASOR, 'ml_model_rapor.txt'), 'w', encoding='utf-8') as f:
+print(report)
+with open(os.path.join(BASE_DIR, 'ml_model_report.txt'), 'w', encoding='utf-8') as f:
     f.write('CIC-IDS2018 → HTTP Feature Mapping ile eğitilmiş model\n\n')
-    f.write(rapor)
+    f.write(report)
 
 # ── GRAFİK 7: Sınıf Dağılımı ─────────────────────────────────────────────────
 fig, ax = plt.subplots(figsize=(7, 4))
@@ -114,7 +114,7 @@ ax.set_ylabel('Satır Sayısı')
 for i, v in enumerate(counts.values):
     ax.text(i, v + 300, f'{v:,}', ha='center', fontweight='bold')
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '7_cic_sinif_dagilimi.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '7_cic_sinif_dagilimi.png'), dpi=150)
 plt.close()
 print('Grafik 7 kaydedildi.')
 
@@ -127,7 +127,7 @@ ax.set_title('CIC-IDS2018 — Confusion Matrix')
 ax.set_xlabel('Tahmin')
 ax.set_ylabel('Gerçek')
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '8_cic_confusion_matrix.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '8_cic_confusion_matrix.png'), dpi=150)
 plt.close()
 print('Grafik 8 kaydedildi.')
 
@@ -139,7 +139,7 @@ importances.plot(kind='barh', ax=ax, color=sns.color_palette('Set2', len(feature
 ax.set_title('CIC → HTTP Mapping — Feature Importance')
 ax.set_xlabel('Önem Skoru')
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '9_cic_feature_importance.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '9_cic_feature_importance.png'), dpi=150)
 plt.close()
 print('Grafik 9 kaydedildi.')
 
@@ -156,7 +156,7 @@ ax.set_xlabel('False Positive Rate')
 ax.set_ylabel('True Positive Rate')
 ax.legend(loc='lower right')
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '10_cic_roc_curve.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '10_cic_roc_curve.png'), dpi=150)
 plt.close()
 print('Grafik 10 kaydedildi.')
 
@@ -191,27 +191,27 @@ ax.set_ylim(0.85, 1.01)
 ax.set_title('DoS/BruteForce - 5-Fold Cross-Validation Sonuçları (Ortalama +- Std)')
 ax.set_ylabel('Skor')
 plt.tight_layout()
-plt.savefig(os.path.join(GRAFIK, '11_cic_cross_validation.png'), dpi=150)
+plt.savefig(os.path.join(PLOTS_DIR, '11_cic_cross_validation.png'), dpi=150)
 plt.close()
 print('Grafik 11 kaydedildi.')
 
-cv_rapor = '\n=== 5-Fold Cross-Validation ===\n'
+cv_report = '\n=== 5-Fold Cross-Validation ===\n'
 for metric, scores in cv_metrics.items():
-    cv_rapor += f'{metric}: {scores.mean():.4f} (+-{scores.std():.4f})\n'
-print(cv_rapor)
-with open(os.path.join(KLASOR, 'ml_model_rapor.txt'), 'a', encoding='utf-8') as f:
-    f.write(cv_rapor)
+    cv_report += f'{metric}: {scores.mean():.4f} (+-{scores.std():.4f})\n'
+print(cv_report)
+with open(os.path.join(BASE_DIR, 'ml_model_report.txt'), 'a', encoding='utf-8') as f:
+    f.write(cv_report)
 
 # ── KAYDET ────────────────────────────────────────────────────────────────────
-with open(os.path.join(KLASOR, 'ml_model.pkl'), 'wb') as f:
+with open(os.path.join(BASE_DIR, 'ml_model.pkl'), 'wb') as f:
     pickle.dump(model, f)
-with open(os.path.join(KLASOR, 'ml_scaler.pkl'), 'wb') as f:
+with open(os.path.join(BASE_DIR, 'ml_scaler.pkl'), 'wb') as f:
     pickle.dump(scaler, f)
-with open(os.path.join(KLASOR, 'ml_encoder.pkl'), 'wb') as f:
+with open(os.path.join(BASE_DIR, 'ml_encoder.pkl'), 'wb') as f:
     pickle.dump(le, f)
 
-# ana prohje/models/ — runtime tarafinin okudugu yer
-MODELS_DIR = os.path.join(os.path.dirname(KLASOR), 'ana prohje', 'models')
+# app/models/ — runtime tarafinin okudugu yer
+MODELS_DIR = os.path.join(os.path.dirname(BASE_DIR), 'app', 'models')
 os.makedirs(MODELS_DIR, exist_ok=True)
 with open(os.path.join(MODELS_DIR, 'dos_model.pkl'),  'wb') as f: pickle.dump(model,  f)
 with open(os.path.join(MODELS_DIR, 'ml_scaler.pkl'),  'wb') as f: pickle.dump(scaler, f)
@@ -220,4 +220,4 @@ with open(os.path.join(MODELS_DIR, 'ml_encoder.pkl'), 'wb') as f: pickle.dump(le
 print('\n=== Tamamlandi ===')
 print('  ml_model.pkl  |  ml_scaler.pkl  |  ml_encoder.pkl')
 print('  Sinif sirasi : %s -> indeks [0, 1, 2]' % list(le.classes_))
-print('  Grafikler    : grafikler/7-11')
+print('  Grafikler    : plots/7-11')

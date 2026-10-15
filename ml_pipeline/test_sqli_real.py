@@ -7,12 +7,12 @@ import pickle
 import os
 from urllib.parse import unquote
 
-KLASOR = r'c:\Users\aerde\Desktop\bitirme\temizlik'
-TANNER_CSV = r'c:\Users\aerde\Desktop\bitirme\son_12_saat_tanner_detayli_tekil.csv'
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+TANNER_CSV = os.path.join(os.path.dirname(BASE_DIR), 'tanner_last_12h_unique.csv')
 
-with open(os.path.join(KLASOR, 'sqli_model.pkl'), 'rb') as f:
+with open(os.path.join(BASE_DIR, 'sqli_model.pkl'), 'rb') as f:
     model = pickle.load(f)
-with open(os.path.join(KLASOR, 'sqli_vectorizer.pkl'), 'rb') as f:
+with open(os.path.join(BASE_DIR, 'sqli_vectorizer.pkl'), 'rb') as f:
     vec = pickle.load(f)
 
 SQLI_KEYWORDS = ('select', 'union', 'case when', 'waitfor', 'sleep(',

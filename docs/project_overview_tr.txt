@@ -36,7 +36,7 @@ Sistem iki farklı arayüz sunar:
 ------------------------------------------------------------------------------
 
 bitirme/
-├── ana prohje/              ← Asıl uygulama burası
+├── app/                     ← Asıl uygulama burası
 │   ├── run.py               ← Tek komutla her şeyi başlatan launcher
 │   ├── detect.py            ← Terminal modunda gerçek zamanlı tespit
 │   ├── dashboard.py         ← Web arayüzü backend (Flask + SocketIO)
